@@ -1,0 +1,485 @@
+---
+title: "statistics-project"
+author: "Jasleen Kaur"
+date: "29/11/2019"
+output:
+  pdf_document: default
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+##Importing some important libraries
+library(devtools)
+library(easyGgplot2)
+library(dplyr)
+library(reshape2)
+library(ggplot2)
+library(ggpubr)
+library(hrbrthemes)
+library(easyGgplot2)
+library(faraway)
+library(lmtest) 
+library(glmnet)
+library(ISLR)
+library(caret)
+```
+
+## Reading the file
+```{r}
+##Reading the data file
+data_ver_1 <- read.csv(file="student-por.csv", header=TRUE, sep=";")
+#We have G3 as our response variables which is int column
+head(data_ver_1, n=5)
+```
+## EXPLORATORY ANALYSIS
+## 1.1-Know the data
+```{r}
+#Observe structure of the data
+#We have 17 categorical variables and 16 int features including the response G3
+str(data_ver_1)
+
+#check the sample size and number of feautres in dataset
+#dimension of the data
+dim(data_ver_1) #649 samples and 33 variables (32 predictors+1 response)
+
+#summary of the data
+summary(data_ver_1) #summary stats for all columns
+```
+## 1.2- Cleaning and shaping data
+```{r}
+
+#Drop the grade 1 and grade 2 columns and also fam_size ,address dosent seem to affect the final grade so we can drop thatt too
+data_ver_2 = subset(data_ver_1, select = -c(G1, G2,famsize,address))
+## We can check for any missing values in dataset
+cat("Number of missing values is ",sum(is.na(data_ver_2)),"\n\n")
+
+##Rename names of columns to some convinient names
+#change the column name to more explicit name
+#names(data_ver_2)-recheck the names
+#change the column name to more explicit name
+names(data_ver_2) <- c("school","sex","age","parents_cohab", "mom_edu","dad_edu","mom_job",                                 "dad_job","reason", "guardian","travel_time", "study_time","failures","edu_sup",                                 "family_sup","paid","activities", "nursery","higher","internet","romantic",
+                      "family_relationship","free_time","social_time","workday_alch","weekend_alch",
+                      "health","absences","final_grade")
+##Lets check the structure of data again
+##649 obs. of  29 variables (28 predictors and 1 response)
+str(data_ver_2)
+```
+
+## 1.3- Data Visualization
+```{r}
+#histogram of grade,there seem some students with zero grade
+hist(data_ver_2$final_grade)
+
+#there 15 of 649 students got grade of 0
+cat("Students with grade zero ",sum(data_ver_2$final_grade==0),"\n\n")
+
+#boxplot of the grade
+boxplot <- boxplot(data_ver_2$final_grade)
+boxplot$out 
+```
+## 1.4- Outliers 
+```{r}
+## We can check for outliers in numerical predictors from data_ver_2 like mom_edu,study_time,workday_alch,health
+##From the list of numerical variables absences seem more like response as it is inversely conveying the final_grade of students , out of mom and dad education we can choose one predcitor and one from alcoholic stat
+boxplot(data_ver_2$mom_edu,data_ver_2$study_time,data_ver_2$health)
+##No significant number of outliers found so we can skip rmeoving outliers from data and also most of the data seem to follow general data trend with response.
+```
+##  1.4- FInd relationship between variables,if any
+```{r, fig.width=7, fig.height=7, fig.fullwidth =TRUE}
+getcormatrix<- function (data_ver_2){
+  #Filter  numerical column
+numeric_col = dplyr::select_if(data_ver_2, is.numeric)
+
+#Correlation matrix
+cormat <- round(cor(numeric_col, method="kendall"),2)
+cormat 
+get_upper_tri <- function(cormat){
+    cormat[lower.tri(cormat)]<- NA
+    return(cormat)
+  }
+upper_tri <- get_upper_tri(cormat)
+melted_cormat <- melt(upper_tri, na.rm = TRUE)
+#Visualize the correltaion
+ggheatmap <- ggplot(melted_cormat, aes(Var2, Var1, fill = value))+
+ geom_tile(color = "white")+
+ scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
+   midpoint = 0, limit = c(-1,1), space = "Lab", 
+    name="Pearson\nCorrelation") +
+  theme_minimal()+ # minimal theme
+ theme(axis.text.x = element_text(angle = 45, vjust = 1, 
+    size = 12, hjust = 1))+
+ coord_fixed()
+
+reorder_cormat <- function(cormat){
+# Use correlation between variables as distance
+dd <- as.dist((1-cormat)/2)
+hc <- hclust(dd)
+cormat <-cormat[hc$order, hc$order]
+}
+
+ggheatmap + 
+geom_text(aes(Var2, Var1, label = value), color = "black", size = 4) +
+theme(
+  axis.title.x = element_blank(),
+  axis.title.y = element_blank(),
+  panel.grid.major = element_blank(),
+  panel.border = element_blank(),
+  panel.background = element_blank(),
+  axis.ticks = element_blank(),
+  legend.justification = c(1, 0),
+  legend.position = c(0.6, 0.7),
+  legend.direction = "horizontal")+
+  guides(fill = guide_colorbar(barwidth = 7, barheight = 1,
+                title.position = "top", title.hjust = 0.5))
+}
+getcormatrix(data_ver_2)
+## From the correlation matrix below we can see workday_alcoholic/weekend_alcoholic ,mom_edu/dad_edu are highly correlated pairs
+##Looks like study_time,dad_edu/mom_edu are explaining our response more positively related to response.
+## SOme predictors have negative correlation with final_grade mentioned in decreasing order like failures,workday_alcoholic,weekend_alcoholic,absences,travel-time
+##Some predcitos show least correlation with final_grade like family_relationship,age
+```
+```{r, fig.width=9, fig.height=9, fig.fullwidth =TRUE}
+## We got important predictors from above matrix.Lets transform few important categorical to numerical variable and make correlation  matrix again
+data_ver_2$school<-as.numeric(data_ver_2$school)
+data_ver_2$mom_job<-as.numeric(data_ver_2$mom_job)
+data_ver_2$dad_job<-as.numeric(data_ver_2$dad_job)
+data_ver_2$reason<-as.numeric(data_ver_2$reason)
+data_ver_2$guardian<-as.numeric(data_ver_2$guardian)
+data_ver_2$edu_sup<-as.numeric(data_ver_2$edu_sup) ##seem correlated to family_sup
+data_ver_2$family_sup<-as.numeric(data_ver_2$family_sup)
+data_ver_2$activities<-as.numeric(data_ver_2$activities)
+data_ver_2$higher<-as.numeric(data_ver_2$higher)
+data_ver_2$internet<-as.numeric(data_ver_2$internet)
+data_ver_2$romantic<-as.numeric(data_ver_2$romantic)
+##calling the correlation matrix function
+getcormatrix(data_ver_2)
+## From belwo matrix figure we can figure some more important correlations like:
+## 1-mom_edu/mom_job are some positive correlations
+## 2-Some relations like guardian/study_time,internet/guardian,romantic/dad_job,romantic/travel_time,family_relationship/school has no correlation
+##3-FInally there seem negative correlation between failures and school in decreasin order.
+## 4- There seem no exact collinearity between feautres.
+```
+
+
+
+We can divide our dataset into various categories to determine relations to various important predictors in one category with response variable
+1-Student's information        :school,age,sex,nursery,higher,romantic,reason,health
+2-Sudent's family information  :parents_cohab,mom_job,dad_job,guardian,family_sup,family_relationshp,mom_edu,mom_edu
+3-Student's study habits       :study_time,travel_time,failures,edu_support,paid,absences
+4-Student's leisure interests  :activites,internet,free_time,social_time,social_time,workday_alch,weekend_alch
+
+
+## 1.6- Visual Observations
+
+```{r}
+#Transforming int columns into categorical for modelling and plotting
+##recheck str again using str(data_ver_2),choose some columns
+col_to_factor <- c("school", "age", "mom_edu","dad_edu","mom_job","dad_job","reason","study_time","failures","edu_sup","family_sup","activities","higher","internet","romantic","family_relationship","free_time","workday_alch","weekend_alch","health")
+
+data_ver_2[col_to_factor] <- lapply(data_ver_2[col_to_factor], factor)  ## as.factor() could also be used
+##check the final structure before starting visual exploration
+str(data_ver_2)
+```
+
+## Plotting certain graphs from first category
+## 1.6.1- final_grade vs sex( 'F' - female or 'M' - male)
+```{r}
+#The distribution plot of test score vs. sex from first category
+
+gender = data_ver_2 %>%
+  group_by(sex) %>%
+  summarize(count = n()) %>%
+  mutate(percent = count/sum(count))
+gender
+
+ggplot(gender, aes(sex, percent, fill = sex)) + 
+  geom_bar(stat='identity') + 
+  geom_text(aes(label=scales::percent(percent)), position = position_stack(vjust = .5))+
+  scale_y_continuous(labels = scales::percent)
+
+#(a) The gender constitution in the class: 59% of students are female in the class, and 41% are male.
+#(b) Since the distribution is skewed, so we use the median as the center estimator.
+#(c) From the grade distribution of female and male, female has higher median than male. It seems that female performs better and has more higher grades than male, but there is not huge difference.
+##code here
+```
+## 1.6.2- final_grade  vs health ( 1 - very bad to 5 - very good)
+```{r }
+health_mu <- data_ver_2 %>% 
+         group_by(health) %>%
+         summarise(h.median=median(final_grade))
+##Levels of health predictor
+unique(data_ver_2$health)
+
+ggplot(data=data_ver_2, aes(x=final_grade, group = health, fill=health)) +
+  geom_density(adjust=2)+
+  facet_grid(health~.) +
+  theme_ipsum() +
+    theme(
+      legend.position="none",
+      panel.spacing = unit(0.1, "lines"),
+      axis.ticks.x=element_blank()
+    )+
+  geom_vline(aes(xintercept = h.median, color = "red"),
+             data =health_mu , linetype = "dashed")+
+  ggtitle('Histogram of Health Status vs. Final Grade')
+
+##Getting the median score for each level of health
+health_mu <- data_ver_2 %>% 
+         group_by(health) %>%
+         summarise(h.median=median(final_grade))
+health_mu
+
+ggplot(data_ver_2, aes(x=final_grade)) +
+  geom_histogram(fill="green", colour="black",binwidth = 1) +
+facet_grid(health ~ .)+
+   geom_vline(aes(xintercept = h.median, color = "red"),
+             data =health_mu , linetype = "dashed")
+#According to the distribution plot, the median of the score for each health status is around 11~12.
+#It seems the trend of very bad health to very good health of the grade has different distribution, student with bad health status has better performance than those with good health status.
+#Student with very good health has the most distribution on the score of 10~12.
+
+```
+
+## 1.6.3-final_grade vs romantic(binary-yes or no)
+## 1.6.4-final_grade vs higher :wants to take higher education (binary: yes or no)
+```{r}
+data_ver_2 %>% group_by(romantic) %>% 
+  summarise(r.mean =mean(final_grade,na.rm=TRUE)) %>%
+  ggplot(aes(x = romantic, y=r.mean,
+             fill = romantic)) +
+    geom_bar(stat = 'identity')
+
+gghistogram(data_ver_2, x = "final_grade", bins = 30,
+   add = "median", rug = TRUE,
+   color = "romantic", fill = "romantic",
+   title="Histogram of Romantic Relationship vs. Final Grade")
+##From the histogram plot below the number of students scoring higher grades are less for those involved in romantic relations vs those who are not
+
+##--------------------------------------higher-----------------------------------------------
+
+##1-no intention for higher education and 2 for intention of higher education
+data_ver_2 %>% group_by(higher) %>% 
+  summarise(higher.median =median(final_grade,na.rm=TRUE)) %>%
+  ggplot(aes(x = higher, y=higher.median,
+             fill = higher)) +
+    geom_bar(stat = 'identity')
+gghistogram(data_ver_2, x = "final_grade", bins = 30,
+   add = "median", rug = TRUE,
+   color = "higher", fill = "higher",
+  title="Histogram of Higher Edu Intention vs. Final Grade")
+## It turns out that students who has intention of higher education has higher mean score than those who does not.
+
+```
+
+
+## For third category we plot some graphs
+## 1.6.5-final_grade vs mom_edu:numeric : 0 - none, 1 - primary education (4th grade), 2 – 5th to 9th grade, 3 – secondary education or 4 – higher education)
+```{r}
+edu_mu <- data_ver_2 %>% 
+         group_by(mom_edu) %>%
+         summarise(e.median=median(final_grade))
+edu_mu
+
+ggplot2.histogram(data=data_ver_2, xName='final_grade',bins=30,
+         groupName='mom_edu', legendPosition="top",
+        faceting=TRUE, facetingVarNames="mom_edu")+
+  geom_vline(aes(xintercept = e.median,),
+             data =edu_mu , linetype = "dashed")
+##We chose either of mom_edu/dad_edu because of high correlation between them.
+##from the plot below it seem as mom education level increases,final_grade increases linearly
+```
+
+## 1.6.6-final_grade vs family_relationshp :quality of family relationships (numeric: from 1 - very bad to 5 - excellent)
+## 1.6.7-final_grade vs parents_cohab :parent's cohabitation status (binary: 'T' - living together or 'A' - apart)
+```{r}
+famrel_mu <- data_ver_2 %>% 
+         group_by(family_relationship) %>%
+         summarise(f.median=median(final_grade))
+
+ggplot2.histogram(data=data_ver_2, xName='final_grade',bins=30,
+         groupName='family_relationship', legendPosition="top",
+        faceting=TRUE, facetingVarNames="family_relationship",
+        mainTitle="Histogram of Family Relationship vs. Final Grade")+
+  geom_vline(aes(xintercept = f.median),
+             data =famrel_mu , linetype = "dashed")
+##So for students with higher family_relationship score has higher grades,seems another linear pattern with increasing median score
+##---------------------------------------------parent's cohab--------------------
+cohab_mu <- data_ver_2 %>% 
+         group_by(parents_cohab) %>%
+         summarise(cohab.median=median(final_grade))
+cohab_mu
+
+ggplot2.histogram(data=data_ver_2, xName='final_grade',bins=30,
+         groupName='parents_cohab', legendPosition="top",
+        faceting=TRUE, facetingVarNames="parents_cohab",
+        mainTitle="Histogram of Parent's Cohabitation vs. Final Grade")+
+  geom_vline(aes(xintercept = cohab.median),
+             data =cohab_mu , linetype = "dashed")
+##there is significant increase in final_grade for students whose parents are together rathar than separated.This might form important distribution for predicting final_grade
+```
+## Analyzing third catgeory -study habits
+## 1.6.8-final_grade vs study_time :weekly study time (numeric: 1 - <2 hours, 2 - 2 to 5 hours, 3 - 5 to 10 hours, or 4 - >10 hours)
+## 1.6.9-final_grade vs edu_sup :extra educational support (binary: yes or no)
+## 1.6.10-final_grade vs absences :number of school absences (numeric: from 0 to 93)
+```{r}
+studytime_mu <- data_ver_2 %>% 
+         group_by(study_time) %>%
+         summarise(studytime.median=median(final_grade))
+##Table for median scores for different number of hours
+studytime_mu
+
+ggplot2.histogram(data=data_ver_2, xName='final_grade',bins=30,
+         groupName='study_time', legendPosition="top",
+        faceting=TRUE, facetingVarNames="study_time",
+        mainTitle="Histogram of Study Time vs. Final Grade")+
+  geom_vline(aes(xintercept = studytime.median),
+             data =studytime_mu , linetype = "dashed")
+##From the score distribution histogram, we can see that as student spends more time on studying, the median of the test score increases. 
+##Though from distribution there linear increase or change in score overall for study time.
+##------------------------------------------------education support----------------------------------------
+gghistogram(data_ver_2, x = "final_grade", bins = 30,
+   add = "median", rug = TRUE,
+   color = "edu_sup", fill = "edu_sup",
+   title="Histogram of Educational Support vs. Final Grade")
+##Similar trend as that of studytime. and in graph below 1-no education support and 2-education support 
+## The students with higher scores seem to have no education support
+##------------------------------------------------absences-------------------------------------------------
+data_ver_2 %>% group_by(absences) %>% 
+  summarise(abs_median=median(final_grade,na.rm=TRUE))
+ggplot(data_ver_2, aes(x=final_grade, y=absences, fill = absences)) + 
+    geom_bar(stat = "identity", position = "dodge") + 
+    labs(title="Bar chart", subtitle = "Absences vs. Final Grade", 
+         caption = "Caption", 
+         y= "absences", x= "final_grade")
+
+##As expected from absences distribution.As the number of absences increase the final_grade seem to decrease overall
+```
+
+## Last category plots-Leisure habits
+## 1.6.11-final_grade vs internet :Internet access at home (binary: yes or no)
+## 1.6.12-final_grade vs workday_alch :workday alcohol consumption (numeric: from 1 - very low to 5 - very high)
+```{r}
+
+gghistogram(data_ver_2, x = "final_grade", bins = 30,
+   add = "median", rug = TRUE,
+   color = "internet", fill = "internet",
+   title="Histogram of Internet Access vs. Final Grade")
+##In graph 1- no internet access and 2- students with internet access
+## Clearly students with highe internet access have higher scores.
+##-----------------------------------------------workday alcohol consumption--------------------
+alc_mu <- data_ver_2 %>% 
+         group_by(workday_alch) %>%
+         summarise(alc_median=median(final_grade))
+alc_mu
+
+ggplot2.histogram(data=data_ver_2, xName='final_grade',bins=30,
+         groupName='workday_alch', legendPosition="top",
+        faceting=TRUE, facetingVarNames="workday_alch",
+        mainTitle="Histogram of Workday Alcohol vs. Final Grade")+
+  geom_vline(aes(xintercept = alc_median),
+             data =alc_mu, linetype = "dashed")
+
+ggplot(data = data_ver_2, mapping = aes(x = as.factor(workday_alch), y = final_grade)) +
+  geom_boxplot()
+## We plot this predictor for both workday and weekend alcoholic because they are correlated
+##From boxplot below the median final_grade ,the response tend to have negative relation with predictor and pattern is evenly decreasing.
+```
+
+## 2- MODEL CONSTRUCTION
+## 2.1- Some Significance Tests of predictors.
+```{r}
+par(mfrow=c(1, 2))
+## Fitting full model with all 29 predictors
+fit_full=lm(final_grade~.,data=data_ver_2)
+summary(fit_full)
+## Since overall p-value of model is low but of individual predictors is high we can again verify the correlation between various predictors.
+## the adjusted R square is low for this model indicating penalization for 29 predictors.
+##----------------------------------------------Some more predictors predictors-----------------------------------------------------
+fit_sample_1=lm(final_grade~mom_job,data=data_ver_2)
+summary(fit_sample_1)
+fit_sample_2=lm(final_grade~mom_job+mom_edu,data=data_ver_2)
+summary(fit_sample_2)##above two models tell that for fit_sample_2 mom_job is not significant for predicton when we have mom_edu model but lower value of mom_job in fit_model_1 shows due to lower p-value we found sufficient evidence to reject the null hypothesis, thus mom_job is significant when alone in model.
+
+
+fit_sample_5=lm(final_grade~mom_job+mom_edu+dad_job+dad_edu,data=data_ver_2)
+summary(fit_sample_5)## For this model we can say mom_edu is significant in prediction but other three predictors together with mom_edu in mode become less significant in predicting response.
+
+fit_sample_3=lm(final_grade~workday_alch+weekend_alch,data=data_ver_2)
+summary(fit_sample_3)
+
+fit_sample_4=lm(final_grade~weekend_alch,data=data_ver_2)
+summary(fit_sample_4)##similar to above concept weekend_alcoholic has higher p-value when with workday_alch thus indicating former can be explained by latter while predicting response whereas for respnse vs weekend_alch we find that , weeken_alcholic becomes signficantly important as show by lower p-value of model.
+```
+
+
+## 2.2- Model Building and Feature Selection
+```{r}
+#Due to correlations between our predictors we can check inflation factor using vif before selecting features
+vif(fit_full) ## Thus it seems no one predictors has high inflation because of other predictors apart from our assumption there is some level of correlation between predictors we seen above
+
+##---------------------------------------------------Preparing and Splitting data into training and testing----------------------------------
+X = model.matrix(Salary~.,Hitters)[, -1] #the first column (for intercept) is eliminated
+y = Hitters$Salary
+set.seed(50)
+n = nrow(data_ver_2)
+idx_tr <- sample(n,round(0.5*n),replace=FALSE)
+
+y_tr <- y[idx_tr]
+X_tr <- X[idx_tr,]
+
+y_ts <- y[-idx_tr]
+X_ts <- X[-idx_tr,]
+##---------------------------------------------------MSE from linear model----------------------------------------------------------------
+fit_ls = lm(final_grade ~ ., data_ver_2[idx_tr,])
+pred_ls = predict(fit_ls, newdata=final_grade[-idx_tr,])
+mse_ls <- mean((pred_ls-y_ts)^2) # mse for the test data
+
+##---------------------------------------------------MSE from Ridge regression------------------------------------------------------------
+fit_ridge = glmnet(X_tr, y_tr, alpha = 0)
+par(mfrow = c(1, 1))
+plot(fit_ridge, xvar = "lambda", label = TRUE,lwd=2)
+# To find the best lambda,we use the cv.glmnet function (10 folds cv by default). 
+fit_ridge_cv = cv.glmnet(X_tr, y_tr, alpha = 0)
+# The plot illustrates the MSE for the lambda considered. 
+plot(fit_ridge_cv)
+bestlam = fit_ridge_cv$lambda.min
+plot(fit_ridge, xvar = "lambda", label = TRUE,lwd=2)
+abline(v=log(bestlam))
+# Ridge regression fit using the best lambda
+fit_ridge_best = glmnet(X_tr, y_tr, alpha = 0, lambda = bestlam)
+# Most of the beta estimates are shrunk
+round(cbind(coef(fit_ls),coef(fit_ridge_best)),3)
+# predicted Y for the test data
+pred_ridge = predict(fit_ridge_best, s = bestlam, newx = X_ts)
+mse_ridge = mean((pred_ridge-y_ts)^2)
+
+##---------------------------------------------------MSE and feature selection from LASSO-------------------------------------------------
+
+fit_lasso = glmnet(X_tr, y_tr, alpha = 1)
+par(mfrow = c(1, 2))
+par(mfrow = c(1, 1))
+fit_lasso_cv = cv.glmnet(X_tr, y_tr, alpha = 1)
+plot(fit_lasso_cv)
+bestlam = fit_lasso_cv$lambda.min
+bestlam
+log(bestlam)
+fit_lasso_best = glmnet(X_tr, y_tr, alpha = 1, lambda = bestlam)
+coef(fit_lasso_best)
+# Here some of the coefficients are shrunk to zero,doing variable selection
+round(cbind(coef(fit_ls),coef(fit_ridge_best),coef(fit_lasso_best)),3)
+pred_lasso = predict(fit_lasso_best, s = bestlam, newx = X_ts)
+mse_lasso = mean((pred_lasso-y_ts)^2)
+## Non zero Predictors from LASSO are (school2+sexM+age18+age19+mom_edu3+dad_edu1+dad_edu4+mom_job2+dad_job2+reason2+guardian+study_time3+study_time4+edu_sup2+family_sup2+activities2+higher2+internet2+family_relationship3+free_time4+social_time+workday_alch2+workday_alch3+workday_alch5+weekend_alch4+health2+health3+health4+health5+absences)
+
+##--------------------------------------------------Plotting ridge and lasso fits---------------------------------------------------------------
+plot(fit_lasso, xvar = "lambda", label = TRUE,lwd=2,main="LASSO")
+plot(fit_ridge, xvar = "lambda", label = TRUE,lwd=2,main="Ridge regression")
+```
+
+## 2.3- Comparing Models
+## 3- CHECKING MODEL ASSUMPTIONS
+## 4- RESULT

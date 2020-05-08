@@ -1,0 +1,363 @@
+---
+title: "Statistics_Final"
+author: "Jasleen Kaur"
+date: "03/04/2020"
+output:
+  pdf_document: default
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+options(warn=-1)
+library(tidyverse)
+```
+# What percentage of patients miss their medical appoitment and why?
+# 7.1-Data Familiarity
+```{r}
+# read the table
+med_data <-  read_csv("KaggleV2-May-2016.csv")
+```
+
+**7.1.1 Data Visualize**
+```{r}
+str(med_data)
+```
+
+**7.1.2 Data Clean**
+```{r}
+# changing columns name
+names(med_data)<-  c('patient_id','appointment_id','gender','schedule_day',
+                  'appointment_day','age',
+                   'neighborhood','scholarship','hypertension','diabetes',
+                  'alcoholism','handicap',
+                   'sms_received','no_show_status')
+
+# In data description no_show:'No' means patients showed up and 'yes' 
+#means patients dint show up . Hence giving clear names
+med_data$no_show_status[med_data$no_show_status == 'No'] <- 'Showed up'
+med_data$no_show_status[med_data$no_show_status == 'Yes'] <- 'not showed up'
+med_data$no_show_status <- as.factor(med_data$no_show_status)
+
+# replace names for gender levels
+med_data$gender[med_data$gender == 'M'] <- "Male"
+med_data$gender[med_data$gender == 'F'] <- "Female"
+
+med_data$day <- weekdays(as.Date(med_data$appointment_day))
+```
+
+```{r fig.height=7,fig.width=7}
+# Check missing values
+na_count <-sapply(med_data, function(y) sum(length(which(is.na(y)))))
+na_count <- data.frame(na_count)
+na_count$name<-rownames(na_count)
+
+# Visualize NA values in data frame
+p<- ggplot(data=na_count, aes(x=name,y=na_count,fill=na_count))+
+  geom_bar(stat="identity")+
+  theme_minimal()
+p + coord_flip()
+```
+
+no NA values found in dataset
+
+```{r}
+# coverting some columns to factors
+med_data <- mutate_at(med_data, vars('gender',
+                   'neighborhood',
+                   'scholarship',
+                   'hypertension',
+                   'diabetes',
+                   'alcoholism',
+                   'handicap',
+                   'sms_received'), as.factor)
+```
+```{r}
+# checking summary 
+summary(med_data)
+```
+
+```{r}
+# removing age = -1
+med_data<-med_data[!(med_data$age<0),]
+summary(med_data$age)
+```
+
+# 7.2-Exploratory Analysis
+
+**7.2.1-Age vs no show status variable**
+```{r}
+# Visualize age vs no show status variable 
+library(ggplot2)
+
+ggplot(med_data, aes(x = no_show_status, y = age, fill = no_show_status))+
+    geom_boxplot()+ 
+    ggtitle("Age vs No Show Status Boxplot")+
+    theme(plot.title = element_text(hjust = 0.5))
+```
+
+- Number of patients showing up is less for all age groups
+- From age vs no show status histogram proportion of showed up patients are higher 
+  in the age range 60 to 80 than patient age under 40
+- Mean age of patients not showing up for treatment is less than mean age of patients who showed up for treatment
+```{r}
+# Exact mean value statistics of ages for show/no show
+dplyr::select(med_data,age,no_show_status)%>% 
+    group_by(no_show_status) %>% 
+    summarise(age_mean = mean(age))
+```
+- This signifies there is difference in age of patients showing up and not showing up 
+```{r}
+# COnducting test for significance of age factor;as age is numeric and 
+# no_show_status is a binary factor; 
+# independent 2 group t-test
+# H0: True difference in means of show age and no show age = zero; age factor 
+# is not significant 
+# in determining show,no show factor in medical appoitnments
+t.test(med_data$age ~ med_data$no_show_status)  
+```
+- There is significant difference in mean age of showed and not showed up patients suggesting age is
+significant factor in determining medical appointment show status.
+
+**7.2.2-Gender vs No show status Variable**
+```{r}
+# total patient table
+cat("PATIENT TABLE")
+table(med_data$no_show_status)
+cat("\n\n\n","GENDER TABLE\n")
+# gender table
+table(med_data$gender, med_data$no_show_status)
+cat("\n\n\n","GENDER PROPORTION TABLE\n")
+
+# proportion table for gender
+prop.table(table(med_data$gender, med_data$no_show_status), margin = 1)
+```
+
+- Nearly 25% of patients dont show for scheduled medical appointment
+- It seems no significant difference in gender showing or not showing for medical appointment.
+```{r}
+# Statistical test for significance of gender
+# H0: gender factor is not significant in predicting show/no show factor
+chisq.test(table(med_data$gender,med_data$no_show_status), correct = FALSE)# without continuity correction
+```
+- From the Pearson's chi squared test p-value is higher than alpha value(~0.05) suggesting gender 
+factor is not significant in predicting show no show of patients.
+
+**7.2.3-Handicap vs no show status variable**
+
+```{r}
+# Visulizing proportion of show/no-show for each level of handicap
+ggplot(med_data)+geom_bar(aes( handicap, fill = no_show_status), position = position_fill())+
+   ylab('Proportion')
+```
+- Proportion graph for handicap variabl esuggests show/no-show factor is not really dependent on it . 
+Furthur we can verify it using chi squared test
+```{r}
+# Pearson Chi squared test: H0- handicap factor is not significant in determining 
+# show/no-show status for medical appointment
+chisq.test(table(med_data$handicap, med_data$no_show_status), correct = FALSE) #handicap
+```
+-pvalue for handicap factor is more than alpha(~0.05) suggesting handicap is not significant in determining target factor.
+
+**7.2.4- EDA on other factor variables**
+```{r fig.height=15,fig.width=15}
+library(gridExtra)
+# Visualizing significance of other factors for show/no show target factor
+g1 <- ggplot(med_data)+geom_bar(aes(scholarship, fill = no_show_status))
+g2 <- ggplot(med_data)+geom_bar(aes(hypertension, fill =no_show_status))
+g3 <- ggplot(med_data)+geom_bar(aes(diabetes, fill = no_show_status))
+g4 <- ggplot(med_data)+geom_bar(aes (alcoholism, fill =  no_show_status))
+g5 <- ggplot(med_data)+geom_bar(aes(sms_received, fill = no_show_status))
+
+grid.arrange(g1,g2,g3,g4,g5, nrow = 3)
+```
+- The levels for each factor variables are not clearly depicting the proportion of 
+show/no-show so finding their proportions
+```{r fig.height=15,fig.width=15}
+gg1 <- ggplot(med_data)+geom_bar(aes(scholarship, fill = no_show_status)
+                                 , position = position_fill())+ ylab('Proportion')
+gg2 <- ggplot(med_data)+geom_bar(aes(hypertension, fill =no_show_status),
+                                 position = position_fill())+ylab('Proportion')
+gg3 <- ggplot(med_data)+geom_bar(aes(diabetes, fill = no_show_status), 
+                                 position = position_fill())+ ylab('Proportion')
+gg4 <- ggplot(med_data)+geom_bar(aes (alcoholism, fill =  no_show_status),
+                                 position = position_fill())+ylab('Proportion')
+gg5 <- ggplot(med_data)+geom_bar(aes(sms_received, fill = no_show_status), 
+                                 position = position_fill())+ ylab('Proportion')
+
+grid.arrange(gg1,gg2,gg3,gg4,gg5, nrow = 3)
+```
+
+- From these plots except alcholic factor all others seems to have significant effect on show/no show status. We can determine significance using chi squared for each one of them
+```{r}
+# H0: Factor is significant in determining show/no-show for patient
+chisq.test(table(med_data$scholarship, med_data$no_show_status), correct = FALSE) # scholarship
+chisq.test(table(med_data$hypertension, med_data$no_show_status), correct = FALSE) # hypertension
+chisq.test(table(med_data$diabetes, med_data$no_show_status), correct = FALSE) # diabetes
+chisq.test(table(med_data$alcoholism, med_data$no_show_status), correct = FALSE) #alcoholism
+chisq.test(table(med_data$sms_received, med_data$no_show_status), correct = FALSE) # sms_received
+```
+
+- p-values from chi squared test suggest that cholarship, hypertension, diabetes, sms_received group are significant in determining show/no-show for medical appointment and
+as proportion graphs suggested alcohol factor is not significant 
+
+**7.2.5- EDA on appointment day vs No Show**
+```{r}
+ggplot(med_data)+geom_bar(aes(day, fill = day))+
+     ggtitle("Number of Appointment")+
+    ylab('Count')+
+    xlab('Day')+
+    theme(plot.title = element_text(hjust = 0.5))
+```
+-Number of appointment differ across week. Some day like Wednesday and Tuesday make more appointment than other. Statistics give exact information below.
+```{r}
+library(lubridate)
+# make days column, with label true
+med_data$date <- as.Date(med_data$appointment_day)
+med_data$days <- wday(med_data$date, label=TRUE)
+```
+
+
+```{r}
+# days column 
+table(med_data$days, med_data$no_show_status)
+```
+- Weekends tend to have lesser number of appointments and weekdays have more . Tuesday and wednesday are busy days mostly. Day factor seem to be significant for determining show no show factor. 
+- Saturday has highest number of no shows. Seems like weekend appointment tend to cancel more
+```{r}
+# H0: weekday is significant in determining target factor
+chisq.test(table(med_data$no_show_status,med_data$day))
+```
+-Since p value is significantly low suggesting showing up in appointment day is dependent on which day the appointment is.
+
+**7.2.6- EDA on Neighborhood vs No Show**
+```{r}
+df_neighbor <- data.frame(table(med_data$neighborhood, med_data$no_show_status))
+names(df_neighbor) <- c("neighborhood", "no_show", 'Count')
+```
+
+```{r fig.height=15,fig.width=15}
+# visualization on neighbourhood
+gg_neigh<-ggplot(df_neighbor)+
+geom_bar(aes(x = reorder(neighborhood, -Count), y = Count, fill = no_show), 
+    stat = 'identity')+
+    theme(axis.text.x = element_text(size= 12, angle = 90, hjust = 1))+
+    ggtitle("Neighborhood vs No Show")+
+    ylab('Count')+
+    xlab('Neighborhood')+
+    theme(plot.title = element_text(hjust = 0.5, size = 24))+
+    theme(axis.title.y = element_text(size =18))+ 
+    theme(axis.title.x = element_text(size =18))
+gg_neigh+coord_flip()
+```
+There is no clear analysis on how neighbourhood is affecting appointment no show status so plotting proportions
+```{r fig.height=15,fig.width=15}
+# proportion 
+gg_neighbour<-ggplot(med_data)+
+    geom_bar(aes(x = neighborhood, fill = no_show_status), position = position_fill())+
+    theme(axis.text.x = element_text(size= 12, angle = 90, hjust = 1))+
+      ggtitle("Neighborhood vs No Show")+
+    ylab('Proportion')+
+    xlab('Neighborhood')+
+    theme(plot.title = element_text(hjust = 0.5))+
+    theme(plot.title = element_text(hjust = 0.5, size = 24))+
+    theme(axis.title.y = element_text(size =18))+ 
+    theme(axis.title.x = element_text(size =18))
+gg_neighbour+coord_flip()
+```
+-ILHAS OCEANICAS DE TRINDADE neighbourhood has maximum no show counts of patients followed by SANTOS DUMONT area 
+
+# 7.3- Model Selection and Predictor Significance
+
+```{r}
+# considering important factors 
+med_data_2 <- dplyr::select(med_data, age, gender, scholarship, hypertension, diabetes,
+                            alcoholism, handicap,sms_received, day, no_show_status)
+med_data_2 <- mutate_at(med_data_2, vars(day), as.factor)
+str(med_data_2)
+```
+
+```{r}
+library(faraway)
+log_model_1 <- glm(no_show_status ~ . ,family = binomial(link = 'logit'),  data = med_data_2 )
+sumary(log_model_1)
+```
+- We can observe negative coefficients for scholarship true,diabetes,alcoholism,handicap,sms_received,weekend day saturday indicating number of no shows 
+of patients increases if these are true for patient. While for male gender,weekdays,hypertension and age factors number of no shows are lesser .
+```{r}
+exp(coef(log_model_1))
+
+```
+
+- We can interpret coefficients for:
+(a) saturday - 0.8653094 ODDS- the odds of showing up for appointment reduces by 13.4% on saturday keeping all other factors constant like age,gender,
+scholarship yes or no,hypertension,diabetes,alcoholism etc
+(b)hypertension-1.0695011 ODDS- the odds of showing up for appointment increases by 6.9% if patient has hypertension keeping all other factors fixed.
+Seems reasonable if patient already has some medical ailment , he tends to show up for appointment.
+
+```{r}
+# we can even test significance of individual predcitor using drop1 fucntion
+drop1(log_model_1,test = "Chi")
+```
+
+- Gender and handicap p-values are significantly higher indicating we can drop them from our model as they are not significant
+```{r}
+med_data_3 <- dplyr::select(med_data, age, scholarship, hypertension, diabetes,
+                            alcoholism, sms_received, day, no_show_status)
+log_model_2 <- glm(no_show_status ~ . ,family = binomial(link = 'logit'),  data = med_data_3 )
+sumary(log_model_2)
+```
+
+# 7.4- Logistic Regression with training and test data set
+```{r}
+library(caTools)
+set.seed(100)
+indices = sample.split(med_data_3$no_show_status, SplitRatio = 0.7)
+train = med_data_3[indices,]
+test = med_data_3[!(indices),]
+
+```
+
+```{r}
+logit_model_1 <- glm(no_show_status ~ . ,  data = train, family =binomial(link = 'logit') )
+# Stepwise selection
+library("MASS")
+model_2<- stepAIC(logit_model_1, direction="both")
+vif(logit_model_1)
+```
+
+- vif > 10 suggests inflation of factor in this case weekdays are getting inflated
+```{r}
+# Model from AIC obtained 
+logit_model_2 <- glm(no_show_status ~ age + scholarship + hypertension + alcoholism + 
+    sms_received + day ,  data = train, family =binomial(link = 'logit') )
+sumary(logit_model_2)
+```
+- hypertension and alcoholism have significantly higher p-values suggesting they are not significant in determining show/no-show status of appointment.
+
+```{r}
+# Removing alcholism and hypertension
+logit_model_3 <- glm(no_show_status ~ age + scholarship + 
+    sms_received + day ,  data = train, family =binomial(link = 'logit') )
+sumary(logit_model_3)
+```
+- Most of the p-values are significant suggesting possible significance in model building
+
+# 7.5- Model Evaluation
+```{r}
+#predicted probabilities of appointment miss for test data
+test_predicted = predict(logit_model_3, type = "response", newdata = test)
+summary(test_predicted)
+pred_test <-  ifelse(test_predicted>0.5,"No show","show")
+tab <- table(predicted = pred_test, actual = test$no_show_status)
+tab
+```
+Model is not like as we expected because there is class imbalance in between showed up and not showed up group.
+There are 80 % patients who show up and 20 % those who don’t show up for appointment
+```{r}
+# observe residuals
+qqnorm(residuals(logit_model_3))
+```
